@@ -10,6 +10,7 @@ import {
 import { verifyToken } from '../middleware/auth.js';
 import { uploadImage } from '../middleware/upload.js';
 import { uploadImageBuffer, deleteImageByUrl } from '../utils/cloudinary.js';
+import { updateUser } from '../services/authService.js';
 
 const router: Router = express.Router();
 
@@ -86,22 +87,42 @@ router.get('/', async (req: any, res: any) => {
   }
 });
 
-// GET - Obtener usuario por ID
-router.get('/:id', async (req: any, res: any) => {
+
+// PUT - Actualizar perfil del usuario autenticado
+router.put('/profile', verifyToken, async (req: any, res: any) => {
   try {
-    const { id } = req.params;
-    const user = await prisma.user.findUnique({
-      where: { id },
-      select: userSelect,
+    const userId = req.user.userId;
+
+    const { firstName, lastName, email } = req.body;
+
+    const user = await updateUser(
+      userId,
+      firstName,
+      lastName,
+      email
+    );
+
+    res.json({
+      success: true,
+      data: user,
     });
-    if (!user) {
-      return res.status(404).json({ error: 'Usuario no encontrado' });
+
+  } catch (error: any) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({
+        success: false,
+        error: error.message,
+      });
     }
-    res.json(user);
-  } catch (error) {
-    res.status(500).json({ error: 'Error al obtener usuario' });
+
+    res.status(500).json({
+      success: false,
+      error: 'Error al actualizar el perfil',
+    });
   }
 });
+
+
 
 // POST - Crear usuario
 router.post('/', async (req: any, res: any) => {
@@ -127,6 +148,23 @@ router.post('/', async (req: any, res: any) => {
       return res.status(400).json({ error: 'El email ya existe' });
     }
     res.status(500).json({ error: 'Error al crear usuario' });
+  }
+});
+
+// GET - Obtener usuario por ID
+router.get('/:id', async (req: any, res: any) => {
+  try {
+    const { id } = req.params;
+    const user = await prisma.user.findUnique({
+      where: { id },
+      select: userSelect,
+    });
+    if (!user) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener usuario' });
   }
 });
 
@@ -212,5 +250,7 @@ router.post('/:id/profile-image', verifyToken, uploadImage.single('image'), asyn
     res.status(500).json({ error: 'Error al subir la imagen de perfil' });
   }
 });
+
+
 
 export default router;

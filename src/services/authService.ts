@@ -155,7 +155,7 @@ export const changePassword = async (
     });
 
     return {
-      message: 'Contraseña cambiad correctamente',
+      message: 'Contraseña cambiada correctamente',
     };
   } catch (error) {
     throw error;
@@ -258,3 +258,52 @@ export const getCurrentUser = async (userId: string) => {
     throw error;
   }
 };
+
+// Función para actualizar usuario (sin router)
+export const updateUser = async (
+  userId: string,
+  firstName: string,
+  lastName: string | null,
+  email: string
+) => {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+  });
+
+  if (!user) {
+    throw new NotFoundError('Usuario');
+  }
+
+  // Verificar que el nuevo email no pertenezca a otro usuario
+  const existingUser = await prisma.user.findUnique({
+    where: { email },
+  });
+
+  if (existingUser && existingUser.id !== userId) {
+    throw new ConflictError('El email ya está registrado');
+  }
+
+  const updatedUser = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      firstName,
+      lastName: lastName || null,
+      email,
+    },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      profileImage: true,
+      isActive: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+
+  return updatedUser;
+};
+
+
+
