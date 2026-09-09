@@ -88,7 +88,7 @@ router.get('/', async (req: any, res: any) => {
 });
 
 
-// PUT - Actualizar perfil del usuario autenticado
+// PUT - Actualizar perfil del usuario autenticado en ajustes
 router.put('/profile', verifyToken, async (req: any, res: any) => {
   try {
     const userId = req.user.userId;
@@ -121,7 +121,6 @@ router.put('/profile', verifyToken, async (req: any, res: any) => {
     });
   }
 });
-
 
 
 // POST - Crear usuario
