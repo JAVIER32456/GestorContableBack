@@ -28,7 +28,7 @@ export const sendContactEmails = async (
       to: email,  // Al que contacta
       subject: `Hemos recibido tu mensaje: ${subject}`,
       html: `
-        <h2>Hola,</h2>
+        <h2>Hola, un gusto saludarte</h2>
         <p>Gracias por contactarnos. Hemos recibido tu mensaje y te responderemos pronto.</p>
         <hr>
       `

@@ -153,17 +153,17 @@ router.get("/", verifyToken, async (req: any, res: any) => {
         transactions: expense._count.id,
     }));
 
-    // ==========================
+    // ===========================
     // Saldo actual
-    // ==========================
+    // ===========================
 
     const currentBalance =
       Number(totalIncome._sum.amount ?? 0) -
       Number(totalExpenses._sum.amount ?? 0);
 
-    // ==========================
+    // ===========================
     // Respuesta
-    // ==========================
+    // ===========================
 
     res.json({
       success: true,
