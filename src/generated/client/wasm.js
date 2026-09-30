@@ -132,6 +132,15 @@ exports.Prisma.UserScalarFieldEnum = {
   updatedAt: 'updatedAt'
 };
 
+exports.Prisma.PasswordResetTokenScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  tokenHash: 'tokenHash',
+  expiresAt: 'expiresAt',
+  usedAt: 'usedAt',
+  createdAt: 'createdAt'
+};
+
 exports.Prisma.CategoryScalarFieldEnum = {
   id: 'id',
   name: 'name',
@@ -227,6 +236,7 @@ exports.Prisma.JsonNullValueFilter = {
 
 exports.Prisma.ModelName = {
   User: 'User',
+  PasswordResetToken: 'PasswordResetToken',
   Category: 'Category',
   MovementType: 'MovementType',
   Movement: 'Movement',

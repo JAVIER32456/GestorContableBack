@@ -85,9 +85,25 @@ router.post(
   '/change-password',
   verifyToken,
   asyncHandler(async (req: any, res: any) => {
-    validatePasswordChange(req.body);
+    const { currentPassword, newPassword, confirmPassword } = req.body;
 
-    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          message: 'Contraseña actual, nueva contraseña y confirmación son requeridas',
+        },
+      });
+    }
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          message: 'La nueva contraseña y la confirmación no coinciden',
+        },
+      });
+    }
 
     const result = await changePassword(req.user.userId, currentPassword, newPassword);
 
