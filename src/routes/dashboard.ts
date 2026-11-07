@@ -8,9 +8,11 @@ import {
   getMovementsSummaryByDateRange,
 } from '../services/dashboardService.js';
 import {
+  getFinancialSummary,
   getMovementStatistics,
   compareMonthlyTrend,
   getCategoryAnalysis,
+  getCategoryDistribution,
   getProjection,
 } from '../services/statisticsService.js';
 import { getReportData, getUserReports, compareReports } from '../services/reportService.js';
@@ -47,22 +49,39 @@ router.get('/home', verifyToken, async (req: any, res: any) => {
  */
 router.get('/statistics', verifyToken, async (req: any, res: any) => {
   try {
-    const { userId } = req.query;
+    const userId = req.user.userId;
+    const now = new Date();
+    const startMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startNextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
-    if (!userId) {
-      return res.status(400).json({ error: 'userId es requerido' });
-    }
-
-    const stats = await getMovementStatistics(userId);
-    const monthlyTrend = await compareMonthlyTrend(userId, 6);
-    const categoryAnalysis = await getCategoryAnalysis(userId);
+    const [
+      summary,
+      stats,
+      monthlyTrend,
+      categoryAnalysis,
+      expenseDistribution,
+      incomeDistribution,
+    ] = await Promise.all([
+      getFinancialSummary(userId),
+      getMovementStatistics(userId),
+      compareMonthlyTrend(userId, 6),
+      getCategoryAnalysis(userId),
+      getCategoryDistribution(userId, 'EXPENSE', startMonth, startNextMonth),
+      getCategoryDistribution(userId, 'INCOME', startMonth, startNextMonth),
+    ]);
 
     res.json({
       success: true,
       data: {
+        summary,
         statistics: stats,
         monthlyTrend,
         categoryAnalysis,
+        distributions: {
+          period: 'currentMonth',
+          expenses: expenseDistribution,
+          income: incomeDistribution,
+        },
       },
     });
   } catch (error) {

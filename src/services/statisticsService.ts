@@ -90,48 +90,277 @@ export const getMovementStatistics = async (userId: string) => {
 export const compareMonthlyTrend = async (userId: string, months: number = 3) => {
   try {
     const now = new Date();
-    const monthlyData = [];
+    const firstMonth = new Date(now.getFullYear(), now.getMonth() - months + 1, 1);
+    const monthTotals = new Map<string, {
+      month: string;
+      totalIncome: number;
+      totalExpense: number;
+      movementCount: number;
+    }>();
 
-    for (let i = months - 1; i >= 0; i--) {
-      const currentMonth = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const nextMonth = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
-
-      const monthMovements = await prisma.movement.findMany({
-        where: {
-          userId,
-          movementDate: {
-            gte: currentMonth,
-            lt: nextMonth,
-          },
-          deletedAt: null,
-        },
-        include: {
-          movementType: true,
-        },
-      });
-
-      const totalIncome = monthMovements
-        .filter((m) => m.movementType.code === 'INCOME')
-        .reduce((sum, m) => sum + Number(m.amount), 0);
-
-      const totalExpense = monthMovements
-        .filter((m) => m.movementType.code === 'EXPENSE')
-        .reduce((sum, m) => sum + Number(m.amount), 0);
-
-      monthlyData.push({
+    for (let i = 0; i < months; i++) {
+      const currentMonth = new Date(firstMonth.getFullYear(), firstMonth.getMonth() + i, 1);
+      const monthKey = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}`;
+      monthTotals.set(monthKey, {
         month: currentMonth.toLocaleString('es-ES', { month: 'long', year: 'numeric' }),
-        totalIncome: parseFloat(totalIncome.toFixed(2)),
-        totalExpense: parseFloat(totalExpense.toFixed(2)),
-        balance: parseFloat((totalIncome - totalExpense).toFixed(2)),
-        movementCount: monthMovements.length,
+        totalIncome: 0,
+        totalExpense: 0,
+        movementCount: 0,
       });
     }
 
-    return monthlyData;
+    const movements = await prisma.movement.findMany({
+      where: {
+        userId,
+        deletedAt: null,
+        movementDate: {
+          gte: firstMonth,
+          lt: new Date(now.getFullYear(), now.getMonth() + 1, 1),
+        },
+      },
+      select: {
+        amount: true,
+        movementDate: true,
+        movementType: {
+          select: {
+            code: true,
+          },
+        },
+      },
+    });
+
+    for (const movement of movements) {
+      const monthKey = `${movement.movementDate.getFullYear()}-${String(movement.movementDate.getMonth() + 1).padStart(2, '0')}`;
+      const totals = monthTotals.get(monthKey);
+      if (!totals) continue;
+
+      if (movement.movementType.code === 'INCOME') {
+        totals.totalIncome += Number(movement.amount);
+      } else if (movement.movementType.code === 'EXPENSE') {
+        totals.totalExpense += Number(movement.amount);
+      }
+      totals.movementCount += 1;
+    }
+
+    return Array.from(monthTotals.values(), (totals) => ({
+      ...totals,
+      totalIncome: parseFloat(totals.totalIncome.toFixed(2)),
+      totalExpense: parseFloat(totals.totalExpense.toFixed(2)),
+      balance: parseFloat((totals.totalIncome - totals.totalExpense).toFixed(2)),
+    }));
   } catch (error) {
     console.error('Error en compareMonthlyTrend:', error);
     throw error;
   }
+};
+
+export const getCumulativeBalanceTrend = async (userId: string, months: number = 6) => {
+  const now = new Date();
+  const firstMonth = new Date(now.getFullYear(), now.getMonth() - months + 1, 1);
+  const endNextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+  const [incomeBeforePeriod, expensesBeforePeriod, movements] = await prisma.$transaction([
+    prisma.movement.aggregate({
+      where: {
+        userId,
+        deletedAt: null,
+        movementType: { code: 'INCOME' },
+        movementDate: { lt: firstMonth },
+      },
+      _sum: { amount: true },
+    }),
+    prisma.movement.aggregate({
+      where: {
+        userId,
+        deletedAt: null,
+        movementType: { code: 'EXPENSE' },
+        movementDate: { lt: firstMonth },
+      },
+      _sum: { amount: true },
+    }),
+    prisma.movement.findMany({
+      where: {
+        userId,
+        deletedAt: null,
+        movementDate: { gte: firstMonth, lt: endNextMonth },
+      },
+      select: {
+        amount: true,
+        movementDate: true,
+        movementType: { select: { code: true } },
+      },
+    }),
+  ]);
+
+  const monthlyTotals = new Map<string, {
+    month: string;
+    monthlyIncome: number;
+    monthlyExpenses: number;
+  }>();
+
+  for (let i = 0; i < months; i++) {
+    const monthStart = new Date(firstMonth.getFullYear(), firstMonth.getMonth() + i, 1);
+    const monthKey = `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, '0')}`;
+    monthlyTotals.set(monthKey, {
+      month: monthStart.toLocaleString('es-ES', { month: 'long', year: 'numeric' }),
+      monthlyIncome: 0,
+      monthlyExpenses: 0,
+    });
+  }
+
+  for (const movement of movements) {
+    const monthKey = `${movement.movementDate.getFullYear()}-${String(movement.movementDate.getMonth() + 1).padStart(2, '0')}`;
+    const totals = monthlyTotals.get(monthKey);
+    if (!totals) continue;
+
+    if (movement.movementType.code === 'INCOME') {
+      totals.monthlyIncome += Number(movement.amount);
+    } else if (movement.movementType.code === 'EXPENSE') {
+      totals.monthlyExpenses += Number(movement.amount);
+    }
+  }
+
+  let totalBalance =
+    Number(incomeBeforePeriod._sum.amount ?? 0) -
+    Number(expensesBeforePeriod._sum.amount ?? 0);
+
+  return Array.from(monthlyTotals.values(), (totals) => {
+    const monthlyBalance = totals.monthlyIncome - totals.monthlyExpenses;
+    totalBalance += monthlyBalance;
+
+    return {
+      month: totals.month,
+      monthlyIncome: Number(totals.monthlyIncome.toFixed(2)),
+      monthlyExpenses: Number(totals.monthlyExpenses.toFixed(2)),
+      monthlyBalance: Number(monthlyBalance.toFixed(2)),
+      totalBalance: Number(totalBalance.toFixed(2)),
+    };
+  });
+};
+
+export const getFinancialSummary = async (userId: string) => {
+  const now = new Date();
+  const startMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startYear = new Date(now.getFullYear(), 0, 1);
+
+  const [
+    totalIncome,
+    totalExpenses,
+    monthlyIncome,
+    monthlyExpenses,
+    annualIncome,
+    annualExpenses,
+  ] = await prisma.$transaction([
+    prisma.movement.aggregate({
+      where: { userId, deletedAt: null, movementType: { code: 'INCOME' } },
+      _sum: { amount: true },
+    }),
+    prisma.movement.aggregate({
+      where: { userId, deletedAt: null, movementType: { code: 'EXPENSE' } },
+      _sum: { amount: true },
+    }),
+    prisma.movement.aggregate({
+      where: {
+        userId,
+        deletedAt: null,
+        movementType: { code: 'INCOME' },
+        movementDate: { gte: startMonth, lt: new Date(now.getFullYear(), now.getMonth() + 1, 1) },
+      },
+      _sum: { amount: true },
+    }),
+    prisma.movement.aggregate({
+      where: {
+        userId,
+        deletedAt: null,
+        movementType: { code: 'EXPENSE' },
+        movementDate: { gte: startMonth, lt: new Date(now.getFullYear(), now.getMonth() + 1, 1) },
+      },
+      _sum: { amount: true },
+    }),
+    prisma.movement.aggregate({
+      where: {
+        userId,
+        deletedAt: null,
+        movementType: { code: 'INCOME' },
+        movementDate: { gte: startYear, lt: new Date(now.getFullYear() + 1, 0, 1) },
+      },
+      _sum: { amount: true },
+    }),
+    prisma.movement.aggregate({
+      where: {
+        userId,
+        deletedAt: null,
+        movementType: { code: 'EXPENSE' },
+        movementDate: { gte: startYear, lt: new Date(now.getFullYear() + 1, 0, 1) },
+      },
+      _sum: { amount: true },
+    }),
+  ]);
+
+  const totalIncomeAmount = Number(totalIncome._sum.amount ?? 0);
+  const totalExpensesAmount = Number(totalExpenses._sum.amount ?? 0);
+  const monthlyIncomeAmount = Number(monthlyIncome._sum.amount ?? 0);
+  const monthlyExpensesAmount = Number(monthlyExpenses._sum.amount ?? 0);
+  const annualIncomeAmount = Number(annualIncome._sum.amount ?? 0);
+  const annualExpensesAmount = Number(annualExpenses._sum.amount ?? 0);
+
+  return {
+    totalIncome: totalIncomeAmount,
+    totalExpenses: totalExpensesAmount,
+    totalNetBalance: totalIncomeAmount - totalExpensesAmount,
+    monthlyIncome: monthlyIncomeAmount,
+    monthlyExpenses: monthlyExpensesAmount,
+    monthlyNetBalance: monthlyIncomeAmount - monthlyExpensesAmount,
+    annualIncome: annualIncomeAmount,
+    annualExpenses: annualExpensesAmount,
+    annualNetBalance: annualIncomeAmount - annualExpensesAmount,
+    monthlySavingsRate: monthlyIncomeAmount === 0
+      ? 0
+      : ((monthlyIncomeAmount - monthlyExpensesAmount) / monthlyIncomeAmount) * 100,
+    annualSavingsRate: annualIncomeAmount === 0
+      ? 0
+      : ((annualIncomeAmount - annualExpensesAmount) / annualIncomeAmount) * 100,
+  };
+};
+
+export const getCategoryDistribution = async (
+  userId: string,
+  movementType: 'INCOME' | 'EXPENSE',
+  startDate: Date,
+  endDate: Date,
+) => {
+  const groupedMovements = await prisma.movement.groupBy({
+    by: ['categoryId'],
+    where: {
+      userId,
+      deletedAt: null,
+      movementType: { code: movementType },
+      movementDate: { gte: startDate, lt: endDate },
+    },
+    _sum: { amount: true },
+    _count: { id: true },
+    orderBy: { _sum: { amount: 'desc' } },
+  });
+
+  const categories = await prisma.category.findMany({
+    where: { id: { in: groupedMovements.map((item) => item.categoryId) } },
+    select: { id: true, name: true },
+  });
+  const totalAmount = groupedMovements.reduce(
+    (sum, item) => sum + Number(item._sum.amount ?? 0),
+    0,
+  );
+
+  return groupedMovements.map((item) => {
+    const amount = Number(item._sum.amount ?? 0);
+    return {
+      categoryId: item.categoryId,
+      category: categories.find((category) => category.id === item.categoryId)?.name ?? 'Sin categoría',
+      amount,
+      transactions: item._count.id,
+      percentage: totalAmount === 0 ? 0 : (amount / totalAmount) * 100,
+    };
+  });
 };
 
 /**

@@ -2,6 +2,7 @@ import express from "express";
 import type { Router } from "express";
 import prisma from "../prisma.js";
 import { verifyToken } from "../middleware/auth.js";
+import { getCumulativeBalanceTrend } from "../services/statisticsService.js";
 
 const router: Router = express.Router();
 
@@ -32,6 +33,8 @@ router.get("/", verifyToken, async (req: any, res: any) => {
     const [
       totalIncome,
       totalExpenses,
+      monthlyIncome,
+      monthlyExpenses,
       monthlyMovements,
       recentMovements,
     ] = await prisma.$transaction([
@@ -57,6 +60,42 @@ router.get("/", verifyToken, async (req: any, res: any) => {
           deletedAt: null,
           movementType: {
             code: "EXPENSE",
+          },
+        },
+        _sum: {
+          amount: true,
+        },
+      }),
+
+      // INGRESOS DEL MES
+      prisma.movement.aggregate({
+        where: {
+          userId,
+          deletedAt: null,
+          movementType: {
+            code: "INCOME",
+          },
+          movementDate: {
+            gte: startMonth,
+            lt: endMonth,
+          },
+        },
+        _sum: {
+          amount: true,
+        },
+      }),
+
+      // GASTOS DEL MES
+      prisma.movement.aggregate({
+        where: {
+          userId,
+          deletedAt: null,
+          movementType: {
+            code: "EXPENSE",
+          },
+          movementDate: {
+            gte: startMonth,
+            lt: endMonth,
           },
         },
         _sum: {
@@ -103,6 +142,8 @@ router.get("/", verifyToken, async (req: any, res: any) => {
       
       
     ]);
+
+    const cumulativeBalanceTrend = await getCumulativeBalanceTrend(userId, 6);
     
     // TOP 3 GASTOS MÁS ALTOS
     const groupedExpenses = await prisma.movement.groupBy({
@@ -154,23 +195,28 @@ router.get("/", verifyToken, async (req: any, res: any) => {
     }));
 
     // ===========================
-    // Saldo actual
+    // Saldo actual   
     // ===========================
+ 
+    const totalIncomeAmount = Number(totalIncome._sum.amount ?? 0);
+    const totalExpensesAmount = Number(totalExpenses._sum.amount ?? 0);
+    const monthlyIncomeAmount = Number(monthlyIncome._sum.amount ?? 0);
+    const monthlyExpensesAmount = Number(monthlyExpenses._sum.amount ?? 0);
+    const currentBalanceTotal = totalIncomeAmount - totalExpensesAmount;
+    const currentBalanceMonthly = monthlyIncomeAmount - monthlyExpensesAmount;
 
-    const currentBalance =
-      Number(totalIncome._sum.amount ?? 0) -
-      Number(totalExpenses._sum.amount ?? 0);
-
-    // ===========================
-    // Respuesta
-    // ===========================
-
+    // Respuesta del endpoint
     res.json({
       success: true,
       data: {
-        currentBalance,
-        totalIncome: Number(totalIncome._sum.amount ?? 0),
-        totalExpenses: Number(totalExpenses._sum.amount ?? 0),
+        currentBalance: currentBalanceTotal,
+        currentBalanceMonthly,
+        currentBalanceTotal,
+        monthlyIncome: monthlyIncomeAmount,
+        totalIncome: totalIncomeAmount,
+        monthlyExpenses: monthlyExpensesAmount,
+        totalExpenses: totalExpensesAmount,
+        cumulativeBalanceTrend,
         monthlyMovements,
         topExpenses,
         recentMovements,
